@@ -1,14 +1,18 @@
+/*
+ * Copyright (c) 2021-2022 UNNG Lab.
+ */
+
 package conn
 
 import (
 	"github.com/jackc/pgtype"
 )
 
-type ResultFunc func(dest ...interface{}) error
+type ResultFunc func(dest interface{}) error
 
 // Result is the saved query response that is returned by calling Read on a ResultReader.
 type Result struct {
-	rowValues [][][]byte
+	rowValues [][]byte
 	err       error
 	connInfo  *pgtype.ConnInfo
 	//scanPlans         []pgtype.ScanPlan

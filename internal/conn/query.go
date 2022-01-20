@@ -1,3 +1,7 @@
+/*
+ * Copyright (c) 2021-2022 UNNG Lab.
+ */
+
 package conn
 
 import (
@@ -33,7 +37,7 @@ func NewQuery(connInfo *pgtype.ConnInfo, emptyQueryChan chan *Query) *Query {
 		paramFormats:    make([]int16, 0, 128),
 		R: Result{
 			connInfo:  connInfo,
-			rowValues: make([][][]byte, 0, 128),
+			rowValues: make([][]byte, 0, 256),
 		},
 		D: &Description{
 			FieldDescriptions: make([]pgproto3.FieldDescription, 0, 128),
@@ -98,40 +102,53 @@ func (q *Query) Start(sql string, args ...interface{}) error {
 // TODO notice
 //type NotificationHandler func(*connection, *Notification)
 
-func (q *Query) Scan(dest ...interface{}) error {
+func (q *Query) Scan(dest interface{}) error {
+
 	if q.R.err != nil {
 		err := fmt.Errorf("error: %s", q.R.err.Error())
 		return err
 	}
-	if len(q.D.FieldDescriptions) != len(q.R.rowValues) {
-		err := fmt.Errorf("number of field descriptions must equal number of values, got %d and %d", len(q.D.FieldDescriptions), len(q.R.rowValues))
-		return err
-	}
-	if len(q.D.FieldDescriptions) != len(dest) {
-		err := fmt.Errorf("number of field descriptions must equal number of destinations, got %d and %d", len(q.D.FieldDescriptions), len(dest))
-		return err
-	}
 
-	for r := range q.R.rowValues {
-		for i := range dest {
+	//if len(q.D.FieldDescriptions) != len(q.R.rowValues) {
+	//	err := fmt.Errorf("number of field descriptions must equal number of values, got %d and %d", len(q.D.FieldDescriptions), len(q.R.rowValues))
+	//	return err
+	//}
+	//
+	//if len(q.D.FieldDescriptions) != len(dest) {
+	//	err := fmt.Errorf("number of field descriptions must equal number of destinations, got %d and %d", len(q.D.FieldDescriptions), len(dest))
+	//	return err
+	//}
 
-			if dest[i] == nil {
-				continue
-			}
+	//rowCount := len(q.R.rowValues) / len(q.D.FieldDescriptions)
+	//dest = reflect.MakeSlice(reflect.TypeOf(dest), rowCount, rowCount)
 
-			err := q.R.connInfo.PlanScan(
-				q.D.FieldDescriptions[i].DataTypeOID,
-				q.D.FieldDescriptions[i].Format,
-				dest[i],
-			).
-				Scan(
-					q.R.connInfo,
+	columnsCount := len(q.D.FieldDescriptions)
+	rowsCount := len(q.R.rowValues) / columnsCount
+
+	s := reflect.Indirect(reflect.ValueOf(dest))
+
+	s.Set(reflect.AppendSlice(s, reflect.MakeSlice(reflect.TypeOf(dest).Elem(), rowsCount, rowsCount)))
+
+	for r := 0; r < rowsCount; r++ {
+		if q.D.scanPlans == nil {
+			q.D.scanPlans = make([]pgtype.ScanPlan, 0, columnsCount)
+			for i := 0; i < columnsCount; i++ {
+				q.D.scanPlans = append(q.D.scanPlans, q.R.connInfo.PlanScan(
 					q.D.FieldDescriptions[i].DataTypeOID,
 					q.D.FieldDescriptions[i].Format,
-					q.R.rowValues[r][i],
-					dest[i],
-				)
+					s.Index(r).Field(i).Addr().Interface(),
+				))
+			}
+		}
 
+		for i := 0; i < columnsCount; i++ {
+			err := q.D.scanPlans[i].Scan(
+				q.R.connInfo,
+				q.D.FieldDescriptions[i].DataTypeOID,
+				q.D.FieldDescriptions[i].Format,
+				q.R.rowValues[r*columnsCount+i],
+				s.Index(r).Field(i).Addr().Interface(),
+			)
 			if err != nil {
 				return err
 			}

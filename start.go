@@ -1,3 +1,7 @@
+/*
+ * Copyright (c) 2021-2022 UNNG Lab.
+ */
+
 package pap
 
 import (
@@ -49,7 +53,7 @@ func Start(connString string) (*pap, error) {
 		mutex: sync.RWMutex{},
 	}
 
-	p.connect(10)
+	p.connect(1)
 
 	go p.start(
 		qChan,

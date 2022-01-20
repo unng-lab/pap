@@ -1,8 +1,11 @@
+/*
+ * Copyright (c) 2021-2022 UNNG Lab.
+ */
+
 package pap
 
 import (
 	"errors"
-	"math"
 
 	"pap/internal/conn"
 )
@@ -12,7 +15,7 @@ var ErrArgsLimit = errors.New("args limit")
 
 func (p *pap) QueryAsync(sql string, args ...interface{}) conn.ResultFunc {
 	if !checkArgs(len(args)) {
-		return func(dest ...interface{}) error {
+		return func(dest interface{}) error {
 			return ErrArgsLimit
 		}
 	}
@@ -23,7 +26,7 @@ func (p *pap) QueryAsync(sql string, args ...interface{}) conn.ResultFunc {
 		args...,
 	)
 	if err != nil {
-		return func(dest ...interface{}) error {
+		return func(dest interface{}) error {
 			return err
 		}
 	}
@@ -31,7 +34,7 @@ func (p *pap) QueryAsync(sql string, args ...interface{}) conn.ResultFunc {
 	eq.D, err = p.checkDescription(eq)
 
 	if err != nil {
-		return func(dest ...interface{}) error {
+		return func(dest interface{}) error {
 			return err
 		}
 	}
@@ -39,20 +42,20 @@ func (p *pap) QueryAsync(sql string, args ...interface{}) conn.ResultFunc {
 	for i := range args {
 		err = eq.AppendParam(i)
 		if err != nil {
-			return func(dest ...interface{}) error {
+			return func(dest interface{}) error {
 				return err
 			}
 		}
 	}
 
 	p.queryChan <- eq
-	return func(dest ...interface{}) error {
+	return func(dest interface{}) error {
 		eq.Mutex.Lock()
 		defer eq.Close()
 		if !eq.Actual() {
 			return ErrResultNotActual
 		}
-		err := eq.Scan(dest...)
+		err := eq.Scan(dest)
 		if err != nil {
 			return err
 		}
@@ -61,9 +64,10 @@ func (p *pap) QueryAsync(sql string, args ...interface{}) conn.ResultFunc {
 }
 
 func checkArgs(len int) bool {
-	if len > math.MaxUint16 {
+	if len>>16 > 0 {
 		return false
 	}
+
 	return true
 }
 
