@@ -1,14 +1,19 @@
+/*
+ * Copyright (c) 2021-2022 UNNG Lab.
+ */
+
 package pap
 
 import (
 	"sync"
 	"time"
 
-	"github.com/jackc/pgtype"
+	"pap/internal/pgtype"
 
 	"pap/internal/conn"
 )
 
+// Queries is a slice of preallocated queries
 type Queries struct {
 	mutex          sync.Mutex
 	ticker         *time.Ticker

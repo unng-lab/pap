@@ -13,7 +13,7 @@ import (
 var ErrResultNotActual = errors.New("result not actual")
 var ErrArgsLimit = errors.New("args limit")
 
-func (p *pap) QueryAsync(sql string, args ...interface{}) conn.ResultFunc {
+func (p *Pap) QueryAsync(sql string, args ...interface{}) conn.ResultFunc {
 	if !checkArgs(len(args)) {
 		return func(dest interface{}) error {
 			return ErrArgsLimit
@@ -39,7 +39,7 @@ func (p *pap) QueryAsync(sql string, args ...interface{}) conn.ResultFunc {
 		}
 	}
 
-	for i := range args {
+	for i := range eq.Args {
 		err = eq.AppendParam(i)
 		if err != nil {
 			return func(dest interface{}) error {
@@ -71,7 +71,7 @@ func checkArgs(len int) bool {
 	return true
 }
 
-func (p *pap) prepare(query *conn.Query) error {
+func (p *Pap) prepare(query *conn.Query) error {
 	eq := <-p.emptyQueryChan
 	eq.Mutex.Lock()
 	eq.D = query.D

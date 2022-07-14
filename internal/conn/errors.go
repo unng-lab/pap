@@ -1,3 +1,7 @@
+/*
+ * Copyright (c) 2021-2022 UNNG Lab.
+ */
+
 package conn
 
 import (
@@ -5,9 +9,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/jackc/pgproto3/v2"
-
 	"pap/internal/cfg"
+	"pap/internal/pgproto"
 )
 
 type writeError struct {
@@ -148,7 +151,7 @@ func (pe *PgError) SQLState() string {
 }
 
 // ErrorResponseToPgError converts a wire protocol error message to a *PgError.
-func ErrorResponseToPgError(msg *pgproto3.ErrorResponse) *PgError {
+func ErrorResponseToPgError(msg *pgproto.ErrorResponse) *PgError {
 	return &PgError{
 		Severity:         msg.Severity,
 		Code:             msg.Code,

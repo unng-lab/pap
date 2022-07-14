@@ -1,19 +1,23 @@
+/*
+ * Copyright (c) 2021-2022 UNNG Lab.
+ */
+
 package conn
 
 import (
 	"errors"
 	"net"
 
-	"github.com/jackc/pgproto3/v2"
+	"pap/internal/pgproto"
 )
 
 // peekMessage peeks at the next message without setting up context cancellation.
-func (c *connection) peekMessage() (pgproto3.BackendMessage, error) {
+func (c *connection) peekMessage() (pgproto.BackendMessage, error) {
 	if c.peekedMsg != nil {
 		return c.peekedMsg, nil
 	}
 
-	var msg pgproto3.BackendMessage
+	var msg pgproto.BackendMessage
 	var err error
 	if c.bufferingReceive {
 		c.bufferingReceiveMux.Lock()
@@ -48,7 +52,7 @@ func (c *connection) peekMessage() (pgproto3.BackendMessage, error) {
 }
 
 // receiveMessage receives a message without setting up context cancellation
-func (c *connection) receiveMessage() (pgproto3.BackendMessage, error) {
+func (c *connection) receiveMessage() (pgproto.BackendMessage, error) {
 	msg, err := c.peekMessage()
 	if err != nil {
 		// Close on anything other than timeout error - everything else is fatal
@@ -64,22 +68,22 @@ func (c *connection) receiveMessage() (pgproto3.BackendMessage, error) {
 	c.peekedMsg = nil
 
 	switch msg := msg.(type) {
-	case *pgproto3.ReadyForQuery:
+	case *pgproto.ReadyForQuery:
 		c.txStatus = msg.TxStatus
-	case *pgproto3.ParameterStatus:
+	case *pgproto.ParameterStatus:
 		c.parameterStatuses[msg.Name] = msg.Value
-	case *pgproto3.ErrorResponse:
+	case *pgproto.ErrorResponse:
 		if msg.Severity == "FATAL" {
 			c.status = statusClosed
 			c.conn.Close() // Ignore error as the connection is already broken and there is already an error to return.
 			close(c.cleanupDone)
 			return nil, ErrorResponseToPgError(msg)
 		}
-	case *pgproto3.NoticeResponse:
+	case *pgproto.NoticeResponse:
 		//if c.config.OnNotice != nil {
 		//	c.config.OnNotice(c, noticeResponseToNotice(msg))
 		//}
-	case *pgproto3.NotificationResponse:
+	case *pgproto.NotificationResponse:
 		//if c.config.OnNotification != nil {
 		//	c.config.OnNotification(c, &Notification{PID: msg.PID, Channel: msg.Channel, Payload: msg.Payload})
 		//}

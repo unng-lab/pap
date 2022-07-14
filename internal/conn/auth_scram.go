@@ -1,3 +1,7 @@
+/*
+ * Copyright (c) 2021-2022 UNNG Lab.
+ */
+
 // SCRAM-SHA-256 authentication
 //
 // Resources:
@@ -22,24 +26,24 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/jackc/pgproto3/v2"
 	"golang.org/x/crypto/pbkdf2"
 	"golang.org/x/text/secure/precis"
 
 	"pap/internal/cfg"
+	"pap/internal/pgproto"
 )
 
 const clientNonceLen = 18
 
 // Perform SCRAM authentication.
-func (c *connection) scramAuth(serverAuthMechanisms []string, config cfg.Config) error {
+func (c *connection) scramAuth(serverAuthMechanisms []string, config *cfg.Config) error {
 	sc, err := newScramClient(serverAuthMechanisms, config.Password)
 	if err != nil {
 		return err
 	}
 
 	// Send client-first-message in a SASLInitialResponse
-	saslInitialResponse := &pgproto3.SASLInitialResponse{
+	saslInitialResponse := &pgproto.SASLInitialResponse{
 		AuthMechanism: "SCRAM-SHA-256",
 		Data:          sc.clientFirstMessage(),
 	}
@@ -59,7 +63,7 @@ func (c *connection) scramAuth(serverAuthMechanisms []string, config cfg.Config)
 	}
 
 	// Send client-final-message in a SASLResponse
-	saslResponse := &pgproto3.SASLResponse{
+	saslResponse := &pgproto.SASLResponse{
 		Data: []byte(sc.clientFinalMessage()),
 	}
 	_, err = c.conn.Write(saslResponse.Encode(nil))
@@ -75,12 +79,12 @@ func (c *connection) scramAuth(serverAuthMechanisms []string, config cfg.Config)
 	return sc.recvServerFinalMessage(saslFinal.Data)
 }
 
-func (c *connection) rxSASLContinue() (*pgproto3.AuthenticationSASLContinue, error) {
+func (c *connection) rxSASLContinue() (*pgproto.AuthenticationSASLContinue, error) {
 	msg, err := c.receiveMessage()
 	if err != nil {
 		return nil, err
 	}
-	saslContinue, ok := msg.(*pgproto3.AuthenticationSASLContinue)
+	saslContinue, ok := msg.(*pgproto.AuthenticationSASLContinue)
 	if ok {
 		return saslContinue, nil
 	}
@@ -88,12 +92,12 @@ func (c *connection) rxSASLContinue() (*pgproto3.AuthenticationSASLContinue, err
 	return nil, errors.New("expected AuthenticationSASLContinue message but received unexpected message")
 }
 
-func (c *connection) rxSASLFinal() (*pgproto3.AuthenticationSASLFinal, error) {
+func (c *connection) rxSASLFinal() (*pgproto.AuthenticationSASLFinal, error) {
 	msg, err := c.receiveMessage()
 	if err != nil {
 		return nil, err
 	}
-	saslFinal, ok := msg.(*pgproto3.AuthenticationSASLFinal)
+	saslFinal, ok := msg.(*pgproto.AuthenticationSASLFinal)
 	if ok {
 		return saslFinal, nil
 	}

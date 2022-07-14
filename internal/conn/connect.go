@@ -1,3 +1,7 @@
+/*
+ * Copyright (c) 2021-2022 UNNG Lab.
+ */
+
 package conn
 
 import (
@@ -8,15 +12,15 @@ import (
 	"errors"
 	"io"
 	"net"
-
-	"github.com/jackc/pgproto3/v2"
+	"strconv"
 
 	"pap/internal/cfg"
+	"pap/internal/pgproto"
 )
 
-func (c *connection) connect(config cfg.Config, fallbackConfig *cfg.FallbackConfig) error {
+func (c *connection) connect(config *cfg.Config, fallbackConfig *cfg.FallbackConfig) error {
 	c.cleanupDone = make(chan struct{})
-
+	config.RuntimeParams["application_name"] += strconv.Itoa(c.number)
 	var err error
 	network, address := cfg.NetworkAddress(config.Host, config.Port)
 	conn, err := config.DialFunc(network, address)
@@ -26,7 +30,7 @@ func (c *connection) connect(config cfg.Config, fallbackConfig *cfg.FallbackConf
 		if errors.As(err, &netErr) && netErr.Timeout() {
 			err = &errTimeout{err: err}
 		}
-		return &connectError{config: &config, msg: "dial error", err: err}
+		return &connectError{config: config, msg: "dial error", err: err}
 	}
 
 	c.parameterStatuses = make(map[string]string)
@@ -34,7 +38,7 @@ func (c *connection) connect(config cfg.Config, fallbackConfig *cfg.FallbackConf
 	if fallbackConfig.TLSConfig != nil {
 		if err := c.startTLS(fallbackConfig.TLSConfig); err != nil {
 			c.conn.Close()
-			return &connectError{config: &config, msg: "tls error", err: err}
+			return &connectError{config: config, msg: "tls error", err: err}
 		}
 	}
 
@@ -42,8 +46,8 @@ func (c *connection) connect(config cfg.Config, fallbackConfig *cfg.FallbackConf
 
 	c.frontend = config.BuildFrontend(conn, conn)
 
-	startupMsg := pgproto3.StartupMessage{
-		ProtocolVersion: pgproto3.ProtocolVersionNumber,
+	startupMsg := pgproto.StartupMessage{
+		ProtocolVersion: pgproto.ProtocolVersionNumber,
 		Parameters:      make(map[string]string),
 	}
 
@@ -59,7 +63,7 @@ func (c *connection) connect(config cfg.Config, fallbackConfig *cfg.FallbackConf
 
 	if _, err := c.conn.Write(startupMsg.Encode(c.wBuf)); err != nil {
 		c.conn.Close()
-		return &connectError{config: &config, msg: "failed to write startup message", err: err}
+		return &connectError{config: config, msg: "failed to write startup message", err: err}
 	}
 	for {
 		msg, err := c.receiveMessage()
@@ -68,36 +72,36 @@ func (c *connection) connect(config cfg.Config, fallbackConfig *cfg.FallbackConf
 			if err, ok := err.(*PgError); ok {
 				return err
 			}
-			return &connectError{config: &config, msg: "failed to receive message", err: err}
+			return &connectError{config: config, msg: "failed to receive message", err: err}
 		}
 
 		switch msg := msg.(type) {
-		case *pgproto3.BackendKeyData:
+		case *pgproto.BackendKeyData:
 			c.pid = msg.ProcessID
 			c.secretKey = msg.SecretKey
 
-		case *pgproto3.AuthenticationOk:
-		case *pgproto3.AuthenticationCleartextPassword:
+		case *pgproto.AuthenticationOk:
+		case *pgproto.AuthenticationCleartextPassword:
 			err = c.txPasswordMessage(c.wBuf, config.Password)
 			if err != nil {
 				c.conn.Close()
-				return &connectError{config: &config, msg: "failed to write password message", err: err}
+				return &connectError{config: config, msg: "failed to write password message", err: err}
 			}
-		case *pgproto3.AuthenticationMD5Password:
+		case *pgproto.AuthenticationMD5Password:
 			digestedPassword := "md5" + hexMD5(hexMD5(config.Password+config.User)+string(msg.Salt[:]))
 			err = c.txPasswordMessage(c.wBuf, digestedPassword)
 			if err != nil {
 				c.conn.Close()
-				return &connectError{config: &config, msg: "failed to write password message", err: err}
+				return &connectError{config: config, msg: "failed to write password message", err: err}
 			}
-		case *pgproto3.AuthenticationSASL:
+		case *pgproto.AuthenticationSASL:
 			err = c.scramAuth(msg.AuthMechanisms, config)
 			if err != nil {
 				c.conn.Close()
-				return &connectError{config: &config, msg: "failed SASL auth", err: err}
+				return &connectError{config: config, msg: "failed SASL auth", err: err}
 			}
 
-		case *pgproto3.ReadyForQuery:
+		case *pgproto.ReadyForQuery:
 			c.status = statusIdle
 			//if config.ValidateConnect != nil {
 			//	// ValidateConnect may execute commands that cause the context to be watched again. Unwatch first to avoid
@@ -114,14 +118,14 @@ func (c *connection) connect(config cfg.Config, fallbackConfig *cfg.FallbackConf
 			//	}
 			//}
 			return nil
-		case *pgproto3.ParameterStatus:
+		case *pgproto.ParameterStatus:
 			// handled by ReceiveMessage
-		case *pgproto3.ErrorResponse:
+		case *pgproto.ErrorResponse:
 			c.conn.Close()
 			return ErrorResponseToPgError(msg)
 		default:
 			c.conn.Close()
-			return &connectError{config: &config, msg: "received unexpected message", err: err}
+			return &connectError{config: config, msg: "received unexpected message", err: err}
 		}
 	}
 }
@@ -147,7 +151,7 @@ func (c *connection) startTLS(tlsConfig *tls.Config) (err error) {
 }
 
 func (c *connection) txPasswordMessage(buf []byte, password string) (err error) {
-	msg := &pgproto3.PasswordMessage{Password: password}
+	msg := &pgproto.PasswordMessage{Password: password}
 	_, err = c.conn.Write(msg.Encode(buf))
 	return err
 }

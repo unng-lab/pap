@@ -5,8 +5,8 @@
 package conn
 
 import (
-	"github.com/jackc/pgproto3/v2"
-	"github.com/jackc/pgtype"
+	"pap/internal/pgproto"
+	"pap/internal/pgtype"
 )
 
 type Description struct {
@@ -14,5 +14,5 @@ type Description struct {
 	paramOIDs         []uint32
 	resultFormats     []int16
 	scanPlans         []pgtype.ScanPlan
-	FieldDescriptions []pgproto3.FieldDescription
+	FieldDescriptions []pgproto.FieldDescription
 }

@@ -11,22 +11,22 @@ import (
 	"pap/internal/conn"
 )
 
-func Start(connString string) (*pap, error) {
+func Start(connString string) (*Pap, error) {
 	var config cfg.Config
 	err := config.ParseConfig(connString)
 	if err != nil {
 		return nil, err
 	}
 
-	var p = &pap{
+	var p = &Pap{
 		config: config,
 	}
 
 	conns := make([]connection, max)
-	emptyQueryChan := make(chan *conn.Query, max)
+	emptyQueryChan := make(chan *conn.Query, eMax)
 	p.emptyQueryChan = emptyQueryChan
 
-	queries := NewQueries(max, emptyQueryChan)
+	queries := NewQueries(cap(emptyQueryChan), emptyQueryChan)
 	p.queries = queries
 
 	for i := range queries.list {
@@ -53,7 +53,7 @@ func Start(connString string) (*pap, error) {
 		mutex: sync.RWMutex{},
 	}
 
-	p.connect(1)
+	p.connect(10)
 
 	go p.start(
 		qChan,
@@ -63,7 +63,7 @@ func Start(connString string) (*pap, error) {
 	return p, nil
 }
 
-func (p *pap) start(
+func (p *Pap) start(
 	qChan chan *conn.Query,
 	connReadyChan chan int,
 ) {

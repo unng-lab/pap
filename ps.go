@@ -1,3 +1,7 @@
+/*
+ * Copyright (c) 2021-2022 UNNG Lab.
+ */
+
 package pap
 
 import (
@@ -18,7 +22,7 @@ type preparedStatements struct {
 	mutex sync.RWMutex
 }
 
-func (p *pap) checkDescription(query *conn.Query) (*conn.Description, error) {
+func (p *Pap) checkDescription(query *conn.Query) (*conn.Description, error) {
 	p.ps.mutex.RLock()
 	desc, ok := p.ps.list[query.SQL]
 

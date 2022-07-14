@@ -5,7 +5,7 @@
 package conn
 
 import (
-	"github.com/jackc/pgtype"
+	"pap/internal/pgtype"
 )
 
 type ResultFunc func(dest interface{}) error

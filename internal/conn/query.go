@@ -10,49 +10,52 @@ import (
 	"reflect"
 	"sync"
 
-	"github.com/jackc/pgproto3/v2"
-	"github.com/jackc/pgtype"
+	"pap/internal/pgproto"
+	"pap/internal/pgtype"
 )
 
 type Query struct {
 	SQL             string
 	Args            []interface{}
+	paramFormats    []int16
 	paramValues     [][]byte
 	paramValueBytes []byte
-	paramFormats    []int16
 
 	startTime      int64
 	D              *Description
 	R              Result
 	Mutex          sync.Mutex
 	emptyQueryChan chan *Query
+	used           bool
 }
 
 func NewQuery(connInfo *pgtype.ConnInfo, emptyQueryChan chan *Query) *Query {
 	return &Query{
 		SQL:             "",
 		Args:            make([]interface{}, 0, 16),
+		paramFormats:    make([]int16, 0, 128),
 		paramValues:     make([][]byte, 0, 128),
 		paramValueBytes: make([]byte, 0, 512),
-		paramFormats:    make([]int16, 0, 128),
 		R: Result{
 			connInfo:  connInfo,
 			rowValues: make([][]byte, 0, 256),
 		},
 		D: &Description{
-			FieldDescriptions: make([]pgproto3.FieldDescription, 0, 128),
+			FieldDescriptions: make([]pgproto.FieldDescription, 0, 128),
 			paramOIDs:         make([]uint32, 0, 128),
 			resultFormats:     make([]int16, 0, 128),
 		},
 		emptyQueryChan: emptyQueryChan,
+		used:           false,
 	}
 }
 
 func (q *Query) Actual() bool {
-	return (nanotime() - q.startTime) < MaxResultSaveDurationInNanoseconds
+	return (nanotime()-q.startTime) < MaxResultSaveDurationInNanoseconds || q.used
 }
 
 func (q *Query) Close() {
+	q.used = true
 	q.Mutex.Unlock()
 	q.Return()
 }
@@ -118,9 +121,6 @@ func (q *Query) Scan(dest interface{}) error {
 	//	err := fmt.Errorf("number of field descriptions must equal number of destinations, got %d and %d", len(q.D.FieldDescriptions), len(dest))
 	//	return err
 	//}
-
-	//rowCount := len(q.R.rowValues) / len(q.D.FieldDescriptions)
-	//dest = reflect.MakeSlice(reflect.TypeOf(dest), rowCount, rowCount)
 
 	columnsCount := len(q.D.FieldDescriptions)
 	rowsCount := len(q.R.rowValues) / columnsCount
@@ -199,10 +199,9 @@ func callValuerValue(vr driver.Valuer) (v driver.Value, err error) {
 }
 
 func (q *Query) AppendParam(i int) error {
-	f := chooseParameterFormatCode(q.R.connInfo, q.D.paramOIDs[i], q.Args[i])
-	q.paramFormats = append(q.paramFormats, f)
+	q.paramFormats = append(q.paramFormats, q.chooseParameterFormatCode(i))
 
-	v, err := q.encodeExtendedParamValue(q.D.paramOIDs[i], f, q.Args[i])
+	v, err := q.encodeExtendedParamValue(i)
 	if err != nil {
 		return err
 	}
@@ -214,8 +213,8 @@ func (q *Query) AppendParam(i int) error {
 // chooseParameterFormatCode determines the correct format code for an
 // argument to a prepared statement. It defaults to TextFormatCode if no
 // determination can be made.
-func chooseParameterFormatCode(ci *pgtype.ConnInfo, oid uint32, arg interface{}) int16 {
-	switch arg := arg.(type) {
+func (q *Query) chooseParameterFormatCode(i int) int16 {
+	switch arg := q.Args[i].(type) {
 	case pgtype.ParamFormatPreferrer:
 		return arg.PreferredParamFormat()
 	case pgtype.BinaryEncoder:
@@ -224,111 +223,109 @@ func chooseParameterFormatCode(ci *pgtype.ConnInfo, oid uint32, arg interface{})
 		return TextFormatCode
 	}
 
-	return ci.ParamFormatCodeForOID(oid)
+	return q.R.connInfo.ParamFormatCodeForOID(q.D.paramOIDs[i])
 }
 
-func (q *Query) encodeExtendedParamValue(oid uint32, formatCode int16, arg interface{}) ([]byte, error) {
-	if arg == nil {
+func (q *Query) encodeExtendedParamValue(i int) ([]byte, error) {
+	if q.Args[i] == nil {
 		return nil, nil
 	}
 
-	refVal := reflect.ValueOf(arg)
+	refVal := reflect.ValueOf(q.Args[i])
 	argIsPtr := refVal.Kind() == reflect.Ptr
 
 	if argIsPtr && refVal.IsNil() {
 		return nil, nil
 	}
 
-	if q.paramValueBytes == nil {
-		q.paramValueBytes = make([]byte, 0, 128)
-	}
-
 	var err error
-	var buf []byte
-	pos := len(q.paramValueBytes)
 
-	if arg, ok := arg.(string); ok {
+	if arg, ok := q.Args[i].(string); ok {
 		return []byte(arg), nil
 	}
 
-	if formatCode == TextFormatCode {
-		if arg, ok := arg.(pgtype.TextEncoder); ok {
-			buf, err = arg.EncodeText(q.R.connInfo, q.paramValueBytes)
+	if q.paramFormats[i] == TextFormatCode {
+		if arg, ok := q.Args[i].(pgtype.TextEncoder); ok {
+			q.paramValueBytes, err = arg.EncodeText(q.R.connInfo, q.paramValueBytes)
 			if err != nil {
 				return nil, err
 			}
-			if buf == nil {
+			if q.paramValueBytes == nil {
 				return nil, nil
 			}
-			q.paramValueBytes = buf
-			return q.paramValueBytes[pos:], nil
+			return q.paramValueBytes, nil
 		}
-	} else if formatCode == BinaryFormatCode {
-		if arg, ok := arg.(pgtype.BinaryEncoder); ok {
-			buf, err = arg.EncodeBinary(q.R.connInfo, q.paramValueBytes)
+	} else if q.paramFormats[i] == BinaryFormatCode {
+		if arg, ok := q.Args[i].(pgtype.BinaryEncoder); ok {
+			if len(q.paramValueBytes) > 0 {
+				panic("pzdc")
+			}
+			q.paramValueBytes, err = arg.EncodeBinary(q.R.connInfo, q.paramValueBytes)
 			if err != nil {
 				return nil, err
 			}
-			if buf == nil {
+			if q.paramValueBytes == nil {
 				return nil, nil
 			}
-			q.paramValueBytes = buf
-			return q.paramValueBytes[pos:], nil
+			return q.paramValueBytes, nil
 		}
 	}
 
 	if argIsPtr {
 		// We have already checked that arg is not pointing to nil,
 		// so it is safe to dereference here.
-		arg = refVal.Elem().Interface()
-		return q.encodeExtendedParamValue(oid, formatCode, arg)
+		q.Args[i] = refVal.Elem().Interface()
+		return q.encodeExtendedParamValue(i)
 	}
 
-	if dt, ok := q.R.connInfo.DataTypeForOID(oid); ok {
+	if dt, ok := q.R.connInfo.DataTypeForOID(q.D.paramOIDs[i]); ok {
 		value := dt.Value
-		err := value.Set(arg)
+		err := value.Set(q.Args[i])
+		q.Args[i] = value
 		if err != nil {
 			{
-				if arg, ok := arg.(driver.Valuer); ok {
+				if arg, ok := q.Args[i].(driver.Valuer); ok {
 					v, err := callValuerValue(arg)
+					q.Args[i] = v
 					if err != nil {
 						return nil, err
 					}
-					return q.encodeExtendedParamValue(oid, formatCode, v)
+					return q.encodeExtendedParamValue(i)
 				}
 			}
 
 			return nil, err
 		}
 
-		return q.encodeExtendedParamValue(oid, formatCode, value)
+		return q.encodeExtendedParamValue(i)
 	}
 	// There is no data type registered for the destination OID, but maybe there is data type registered for the arg
 	// type. If so use its text encoder (if available).
-	if dt, ok := q.R.connInfo.DataTypeForValue(arg); ok {
+	if dt, ok := q.R.connInfo.DataTypeForValue(q.Args[i]); ok {
 		value := dt.Value
 		if textEncoder, ok := value.(pgtype.TextEncoder); ok {
-			err := value.Set(arg)
+			err := value.Set(q.Args[i])
 			if err != nil {
 				return nil, err
 			}
 
-			buf, err = textEncoder.EncodeText(q.R.connInfo, q.paramValueBytes)
+			q.paramValueBytes, err = textEncoder.EncodeText(q.R.connInfo, q.paramValueBytes)
 			if err != nil {
 				return nil, err
 			}
-			if buf == nil {
+			if q.paramValueBytes == nil {
 				return nil, nil
 			}
-			q.paramValueBytes = buf
-			return q.paramValueBytes[pos:], nil
+			return q.paramValueBytes, nil
 		}
 	}
 
 	if strippedArg, ok := stripNamedType(&refVal); ok {
-		return q.encodeExtendedParamValue(oid, formatCode, strippedArg)
+		q.Args[i] = strippedArg
+		return q.encodeExtendedParamValue(i)
 	}
-	return nil, SerializationError(fmt.Sprintf("Cannot encode %T into oid %v - %T must implement Encoder or be converted to a string", arg, oid, arg))
+
+	return nil, SerializationError(fmt.Sprintf("Cannot encode %T into oid %v - %T must implement Encoder or be converted to a string", q.Args[i], q.D.paramOIDs[i], q.Args[i]))
 }
 
 func stripNamedType(val *reflect.Value) (interface{}, bool) {

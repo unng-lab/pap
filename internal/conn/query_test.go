@@ -5,6 +5,7 @@
 package conn
 
 import (
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"testing"
@@ -25,7 +26,7 @@ func TestQuery_Scan(t *testing.T) {
 	//fmt.Println(reflect.TypeOf(arr))
 	//fmt.Println(len(arr))
 	//fmt.Println(cap(arr))
-
+	json.Marshal()
 	var user = User{
 		Name:    "test123123",
 		Surname: "test",

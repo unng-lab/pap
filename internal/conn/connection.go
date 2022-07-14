@@ -1,12 +1,15 @@
+/*
+ * Copyright (c) 2021-2022 UNNG Lab.
+ */
+
 package conn
 
 import (
 	"net"
 	"sync"
 
-	"github.com/jackc/pgproto3/v2"
-
 	"pap/internal/cfg"
+	"pap/internal/pgproto"
 )
 
 type Command struct {
@@ -21,7 +24,7 @@ type connection struct {
 	secretKey         uint32            // key to use to send a cancel query message to the server
 	parameterStatuses map[string]string // parameters that have been reported by the server
 	txStatus          byte
-	frontend          *pgproto3.Frontend
+	frontend          *pgproto.Frontend
 
 	//config *cfg.Config
 
@@ -29,10 +32,10 @@ type connection struct {
 
 	bufferingReceive    bool
 	bufferingReceiveMux sync.Mutex
-	bufferingReceiveMsg pgproto3.BackendMessage
+	bufferingReceiveMsg pgproto.BackendMessage
 	bufferingReceiveErr error
 
-	peekedMsg pgproto3.BackendMessage
+	peekedMsg pgproto.BackendMessage
 
 	cleanupDone chan struct{}
 
@@ -66,9 +69,9 @@ func start(
 		wBuf:          make([]byte, 0, wbufLen),
 	}
 	c.sufBuf = make([]byte, 0, 22)
-	c.sufBuf = (&pgproto3.Describe{ObjectType: 'P'}).Encode(c.sufBuf)
-	c.sufBuf = (&pgproto3.Execute{}).Encode(c.sufBuf)
-	c.sufBuf = (&pgproto3.Sync{}).Encode(c.sufBuf)
+	c.sufBuf = (&pgproto.Describe{ObjectType: 'P'}).Encode(c.sufBuf)
+	c.sufBuf = (&pgproto.Execute{}).Encode(c.sufBuf)
+	c.sufBuf = (&pgproto.Sync{}).Encode(c.sufBuf)
 
 	var cmd Command
 
@@ -76,28 +79,28 @@ func start(
 		cmd = <-commandChan
 		switch cmd.CommandType {
 		case CommandQuery:
+			c.ready()
 			c.ExecParams(
 				cmd.Query,
 			)
-			c.ready()
 			cmd.Query.ready()
 		case CommandPrepare:
+			c.ready()
 			c.prepare(
 				cmd.Query,
 			)
-			c.ready()
 			cmd.Query.ready()
 		case CommandPrepareAsync:
+			c.ready()
 			c.prepareAsync(
 				cmd.Query,
 			)
-			c.ready()
 			cmd.Query.Close()
 		case CommandPreparedQuery:
+			c.ready()
 			c.ExecPrepared(
 				cmd.Query,
 			)
-			c.ready()
 			cmd.Query.ready()
 		case CommandFuncCache:
 			c.ExecParams(
@@ -106,7 +109,7 @@ func start(
 			c.ready()
 			cmd.Query.ready()
 		case CommandConnect:
-			err := c.connect(cmd.Body.(cfg.Config), &cfg.FallbackConfig{})
+			err := c.connect(cmd.Body.(*cfg.Config), &cfg.FallbackConfig{})
 			if err != nil {
 				// TODO think about sync
 				panic(err)
@@ -126,11 +129,11 @@ func (c *connection) ready() {
 func (c *connection) ExecParams(
 	q *Query,
 ) {
-	c.wBuf = (&pgproto3.Parse{
+	c.wBuf = (&pgproto.Parse{
 		Query:         q.SQL,
 		ParameterOIDs: q.D.paramOIDs,
 	}).Encode(c.wBuf)
-	c.wBuf = (&pgproto3.Bind{
+	c.wBuf = (&pgproto.Bind{
 		ParameterFormatCodes: q.paramFormats,
 		Parameters:           q.paramValues,
 		ResultFormatCodes:    q.D.resultFormats,
@@ -154,21 +157,21 @@ func (c *connection) ExecParams(
 			return
 		}
 		switch msg := msg.(type) {
-		case *pgproto3.RowDescription:
+		case *pgproto.RowDescription:
 			q.D.FieldDescriptions = msg.Fields
-		case *pgproto3.EmptyQueryResponse:
+		case *pgproto.EmptyQueryResponse:
 			q.R.concludeCommand(nil, nil)
-		case *pgproto3.DataRow:
+		case *pgproto.DataRow:
 			q.R.rowValues = append(q.R.rowValues, msg.Values...)
-		case *pgproto3.ErrorResponse:
+		case *pgproto.ErrorResponse:
 			q.R.concludeCommand(nil, ErrorResponseToPgError(msg))
-		case *pgproto3.CommandComplete:
+		case *pgproto.CommandComplete:
 			q.R.concludeCommand(msg.CommandTag, nil)
-		case *pgproto3.ReadyForQuery:
+		case *pgproto.ReadyForQuery:
 			q.R.commandConcluded = true
 			// TODO CHECK DOCS
-			//case *pgproto3.ParseComplete:
-			//case *pgproto3.BindComplete:
+			//case *pgproto.ParseComplete:
+			//case *pgproto.BindComplete:
 			//
 			//default:
 			//	panic("check")
@@ -178,9 +181,9 @@ func (c *connection) ExecParams(
 
 func (c *connection) prepare(q *Query) {
 
-	c.wBuf = (&pgproto3.Parse{Name: q.D.Name, Query: q.SQL, ParameterOIDs: q.D.paramOIDs}).Encode(c.wBuf)
-	c.wBuf = (&pgproto3.Describe{ObjectType: 'S', Name: q.D.Name}).Encode(c.wBuf)
-	c.wBuf = (&pgproto3.Sync{}).Encode(c.wBuf)
+	c.wBuf = (&pgproto.Parse{Name: q.D.Name, Query: q.SQL, ParameterOIDs: q.D.paramOIDs}).Encode(c.wBuf)
+	c.wBuf = (&pgproto.Describe{ObjectType: 'S', Name: q.D.Name}).Encode(c.wBuf)
+	c.wBuf = (&pgproto.Sync{}).Encode(c.wBuf)
 
 	n, err := c.conn.Write(c.wBuf)
 	if err != nil {
@@ -202,17 +205,17 @@ func (c *connection) prepare(q *Query) {
 		}
 
 		switch msg := msg.(type) {
-		case *pgproto3.ParameterDescription:
+		case *pgproto.ParameterDescription:
 			q.D.paramOIDs = append(q.D.paramOIDs, msg.ParameterOIDs...)
-		case *pgproto3.RowDescription:
+		case *pgproto.RowDescription:
 			// TODO Name cap 8000 try to reduce mb
 			q.D.FieldDescriptions = append(q.D.FieldDescriptions, msg.Fields...)
-		case *pgproto3.ErrorResponse:
+		case *pgproto.ErrorResponse:
 			parseErr = ErrorResponseToPgError(msg)
-		case *pgproto3.ReadyForQuery:
+		case *pgproto.ReadyForQuery:
 			q.R.commandConcluded = true
 			// TODO CHECK DOCS
-			//case *pgproto3.ParseComplete:
+			//case *pgproto.ParseComplete:
 			//
 			//default:
 			//	panic("check")
@@ -227,9 +230,9 @@ func (c *connection) prepare(q *Query) {
 
 func (c *connection) prepareAsync(q *Query) {
 
-	c.wBuf = (&pgproto3.Parse{Name: q.D.Name, Query: q.SQL, ParameterOIDs: q.D.paramOIDs}).Encode(c.wBuf)
-	c.wBuf = (&pgproto3.Describe{ObjectType: 'S', Name: q.D.Name}).Encode(c.wBuf)
-	c.wBuf = (&pgproto3.Sync{}).Encode(c.wBuf)
+	c.wBuf = (&pgproto.Parse{Name: q.D.Name, Query: q.SQL, ParameterOIDs: q.D.paramOIDs}).Encode(c.wBuf)
+	c.wBuf = (&pgproto.Describe{ObjectType: 'S', Name: q.D.Name}).Encode(c.wBuf)
+	c.wBuf = (&pgproto.Sync{}).Encode(c.wBuf)
 
 	n, err := c.conn.Write(c.wBuf)
 	if err != nil {
@@ -251,17 +254,17 @@ func (c *connection) prepareAsync(q *Query) {
 		}
 
 		switch msg := msg.(type) {
-		case *pgproto3.ParameterDescription:
+		case *pgproto.ParameterDescription:
 			//q.D.paramOIDs = append(q.D.paramOIDs, msg.ParameterOIDs...)
-		case *pgproto3.RowDescription:
+		case *pgproto.RowDescription:
 			// TODO Name cap 8000 try to reduce mb
 			//q.D.FieldDescriptions = append(q.D.FieldDescriptions, msg.Fields...)
-		case *pgproto3.ErrorResponse:
+		case *pgproto.ErrorResponse:
 			parseErr = ErrorResponseToPgError(msg)
-		case *pgproto3.ReadyForQuery:
+		case *pgproto.ReadyForQuery:
 			q.R.commandConcluded = true
 			// TODO CHECK DOCS
-			//case *pgproto3.ParseComplete:
+			//case *pgproto.ParseComplete:
 			//
 			//default:
 			//	panic("check")
@@ -275,7 +278,7 @@ func (c *connection) prepareAsync(q *Query) {
 }
 
 func (c *connection) ExecPrepared(q *Query) {
-	c.wBuf = (&pgproto3.Bind{
+	c.wBuf = (&pgproto.Bind{
 		PreparedStatement:    q.D.Name,
 		ParameterFormatCodes: q.paramFormats,
 		Parameters:           q.paramValues,
@@ -300,21 +303,21 @@ func (c *connection) ExecPrepared(q *Query) {
 			return
 		}
 		switch msg := msg.(type) {
-		case *pgproto3.RowDescription:
+		case *pgproto.RowDescription:
 			q.D.FieldDescriptions = msg.Fields
-		case *pgproto3.EmptyQueryResponse:
+		case *pgproto.EmptyQueryResponse:
 			q.R.concludeCommand(nil, nil)
-		case *pgproto3.DataRow:
+		case *pgproto.DataRow:
 			q.R.rowValues = append(q.R.rowValues, msg.Values...)
-		case *pgproto3.ErrorResponse:
+		case *pgproto.ErrorResponse:
 			q.R.concludeCommand(nil, ErrorResponseToPgError(msg))
-		case *pgproto3.CommandComplete:
+		case *pgproto.CommandComplete:
 			q.R.concludeCommand(msg.CommandTag, nil)
-		case *pgproto3.ReadyForQuery:
+		case *pgproto.ReadyForQuery:
 			q.R.commandConcluded = true
 			// TODO CHECK DOCS
-			//case *pgproto3.ParseComplete:
-			//case *pgproto3.BindComplete:
+			//case *pgproto.ParseComplete:
+			//case *pgproto.BindComplete:
 			//
 			//default:
 			//	panic("check")

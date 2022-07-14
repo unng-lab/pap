@@ -1,3 +1,7 @@
+/*
+ * Copyright (c) 2021-2022 UNNG Lab.
+ */
+
 package cfg
 
 import (
@@ -19,15 +23,16 @@ import (
 
 	"github.com/jackc/chunkreader/v2"
 	"github.com/jackc/pgpassfile"
-	"github.com/jackc/pgproto3/v2"
 	"github.com/jackc/pgservicefile"
+
+	"pap/internal/pgproto"
 )
 
 // DialFunc is a function that can be used to connect to a PostgreSQL server.
 type DialFunc func(network, addr string) (net.Conn, error)
 
 // BuildFrontendFunc is a function that can be used to create Frontend implementation for connection.
-type BuildFrontendFunc func(r io.Reader, w io.Writer) *pgproto3.Frontend
+type BuildFrontendFunc func(r io.Reader, w io.Writer) *pgproto.Frontend
 
 // LookupFunc is a function that can be used to lookup IPs addrs from host.
 type LookupFunc func(ctx context.Context, host string) (addrs []string, err error)
@@ -183,21 +188,21 @@ func (c *Config) ParseConfig(connString string) error {
 	c.LookupFunc = makeDefaultResolver().LookupHost
 
 	notRuntimeParams := map[string]struct{}{
-		"host":                 struct{}{},
-		"port":                 struct{}{},
-		"database":             struct{}{},
-		"user":                 struct{}{},
-		"password":             struct{}{},
-		"passfile":             struct{}{},
-		"connect_timeout":      struct{}{},
-		"sslmode":              struct{}{},
-		"sslkey":               struct{}{},
-		"sslcert":              struct{}{},
-		"sslrootcert":          struct{}{},
-		"target_session_attrs": struct{}{},
-		"min_read_buffer_size": struct{}{},
-		"service":              struct{}{},
-		"servicefile":          struct{}{},
+		"host":                 {},
+		"port":                 {},
+		"database":             {},
+		"user":                 {},
+		"password":             {},
+		"passfile":             {},
+		"connect_timeout":      {},
+		"sslmode":              {},
+		"sslkey":               {},
+		"sslcert":              {},
+		"sslrootcert":          {},
+		"target_session_attrs": {},
+		"min_read_buffer_size": {},
+		"service":              {},
+		"servicefile":          {},
 	}
 
 	for k, v := range settings {
@@ -621,12 +626,12 @@ func makeDefaultResolver() *net.Resolver {
 }
 
 func makeDefaultBuildFrontendFunc(minBufferLen int) BuildFrontendFunc {
-	return func(r io.Reader, w io.Writer) *pgproto3.Frontend {
+	return func(r io.Reader, w io.Writer) *pgproto.Frontend {
 		cr, err := chunkreader.NewConfig(r, chunkreader.Config{MinBufLen: minBufferLen})
 		if err != nil {
 			panic(fmt.Sprintf("BUG: chunkreader.NewConfig failed: %v", err))
 		}
-		frontend := pgproto3.NewFrontend(cr, w)
+		frontend := pgproto.NewFrontend(cr, w)
 
 		return frontend
 	}

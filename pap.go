@@ -1,3 +1,7 @@
+/*
+ * Copyright (c) 2021-2022 UNNG Lab.
+ */
+
 package pap
 
 import (
@@ -11,7 +15,7 @@ const (
 	eMax = 1024
 )
 
-type pap struct {
+type Pap struct {
 	config cfg.Config
 
 	conns   *connections
