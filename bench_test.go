@@ -20,24 +20,25 @@ import (
 )
 
 type Goods struct {
-	ID          int
-	BrandID     int
+	ID          int64
+	BrandID     int64
 	Title       string
 	Description string
 	Excerpt     string
 }
 
-func BenchmarkMinimalUnpreparedSelectWithoutStatementCache(b *testing.B) {
+func BenchmarkMinimalUnpreparedSelectWithoutStatementCacheParallel(b *testing.B) {
 	p, _ := Start(os.Getenv("PAP_TEST_DATABASE"))
 
 	str := "select id, brand_id, title, description, excerpt from goods where brand_id = $1 order by title limit 20"
 	fmt.Println("Start test")
 	b.ResetTimer()
 	b.ReportAllocs()
-	//b.SetParallelism(10)
-	i := 10
+	b.SetParallelism(16)
+
 	b.RunParallel(func(pb *testing.PB) {
-		for {
+		i := int64(10)
+		for pb.Next() {
 			i++
 			runQuery(p, str, b, i)
 		}
@@ -45,7 +46,29 @@ func BenchmarkMinimalUnpreparedSelectWithoutStatementCache(b *testing.B) {
 
 }
 
-func runQuery(p *Pap, str string, b *testing.B, i int) {
+func BenchmarkMinimalUnpreparedSelectWithoutStatementCache(b *testing.B) {
+	p, _ := Start(os.Getenv("PAP_TEST_DATABASE"))
+
+	str := "select id, brand_id, title, description, excerpt from goods where brand_id = $1 order by title limit 20"
+	var arr []Goods
+	fmt.Println("Start test")
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		async := p.QueryAsync(str, i+10)
+		err := async(&arr)
+		if err != nil {
+			b.Fatal(err)
+		}
+
+		if int(arr[0].BrandID) != i+10 {
+			b.Fatalf("expected %d, got %d", i, arr[0].BrandID)
+		}
+	}
+}
+
+func runQuery(p *Pap, str string, b *testing.B, i int64) {
 	var arr []Goods
 	async := p.QueryAsync(str, i)
 	err := async(&arr)

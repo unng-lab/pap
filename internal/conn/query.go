@@ -24,7 +24,7 @@ type Query struct {
 	startTime      int64
 	D              *Description
 	R              Result
-	Mutex          sync.Mutex
+	Mutex          sync.RWMutex
 	emptyQueryChan chan *Query
 	used           bool
 }
@@ -74,6 +74,11 @@ func (q *Query) Start(sql string, args ...interface{}) error {
 	q.paramFormats = q.paramFormats[:0]
 	q.Args = q.Args[:0]
 	q.R.rowValues = q.R.rowValues[:0]
+
+	q.D.FieldDescriptions = q.D.FieldDescriptions[:0]
+	q.D.paramOIDs = q.D.paramOIDs[:0]
+	q.D.resultFormats = q.D.resultFormats[:0]
+
 	q.R.commandConcluded = false
 
 	if q.R.err != nil {
@@ -116,7 +121,7 @@ func (q *Query) Scan(dest interface{}) error {
 	//	err := fmt.Errorf("number of field descriptions must equal number of values, got %d and %d", len(q.D.FieldDescriptions), len(q.R.rowValues))
 	//	return err
 	//}
-	//
+
 	//if len(q.D.FieldDescriptions) != len(dest) {
 	//	err := fmt.Errorf("number of field descriptions must equal number of destinations, got %d and %d", len(q.D.FieldDescriptions), len(dest))
 	//	return err

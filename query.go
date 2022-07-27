@@ -89,10 +89,9 @@ func (p *Pap) prepare(query *conn.Query) error {
 	}
 
 	p.conns.mutex.RLock()
-	var eqq *conn.Query
 	for i := range p.conns.list {
 		if p.conns.list[i].status == connStatusOnline && i != cr {
-			eqq = <-p.emptyQueryChan
+			eqq := <-p.emptyQueryChan
 			eqq.Mutex.Lock()
 			eqq.D = query.D
 			err = eqq.Start(

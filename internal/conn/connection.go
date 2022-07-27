@@ -180,7 +180,6 @@ func (c *connection) ExecParams(
 }
 
 func (c *connection) prepare(q *Query) {
-
 	c.wBuf = (&pgproto.Parse{Name: q.D.Name, Query: q.SQL, ParameterOIDs: q.D.paramOIDs}).Encode(c.wBuf)
 	c.wBuf = (&pgproto.Describe{ObjectType: 'S', Name: q.D.Name}).Encode(c.wBuf)
 	c.wBuf = (&pgproto.Sync{}).Encode(c.wBuf)
@@ -229,7 +228,6 @@ func (c *connection) prepare(q *Query) {
 }
 
 func (c *connection) prepareAsync(q *Query) {
-
 	c.wBuf = (&pgproto.Parse{Name: q.D.Name, Query: q.SQL, ParameterOIDs: q.D.paramOIDs}).Encode(c.wBuf)
 	c.wBuf = (&pgproto.Describe{ObjectType: 'S', Name: q.D.Name}).Encode(c.wBuf)
 	c.wBuf = (&pgproto.Sync{}).Encode(c.wBuf)
